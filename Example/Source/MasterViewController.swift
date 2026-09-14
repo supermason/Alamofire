@@ -1,7 +1,7 @@
 //
 //  MasterViewController.swift
 //
-//  Copyright (c) 2014-2016 Alamofire Software Foundation (http://alamofire.org/)
+//  Copyright (c) 2014-2018 Alamofire Software Foundation (http://alamofire.org/)
 //
 //  Permission is hereby granted, free of charge, to any person obtaining a copy
 //  of this software and associated documentation files (the "Software"), to deal
@@ -26,11 +26,13 @@ import Alamofire
 import UIKit
 
 class MasterViewController: UITableViewController {
+    // MARK: - Properties
 
-    @IBOutlet weak var titleImageView: UIImageView!
+    @IBOutlet var titleImageView: UIImageView!
 
-    var detailViewController: DetailViewController? = nil
-    var objects = NSMutableArray()
+    var detailViewController: DetailViewController?
+
+    private var reachability: NetworkReachabilityManager!
 
     // MARK: - View Lifecycle
 
@@ -38,51 +40,37 @@ class MasterViewController: UITableViewController {
         super.awakeFromNib()
 
         navigationItem.titleView = titleImageView
-    }
+        clearsSelectionOnViewWillAppear = true
 
-    override func viewDidLoad() {
-        super.viewDidLoad()
-
-        if let split = splitViewController {
-            let controllers = split.viewControllers
-
-            if let
-                navigationController = controllers.last as? UINavigationController,
-                topViewController = navigationController.topViewController as? DetailViewController
-            {
-                detailViewController = topViewController
-            }
-        }
+        reachability = NetworkReachabilityManager.default
+        monitorReachability()
     }
 
     // MARK: - UIStoryboardSegue
 
-    override func prepareForSegue(segue: UIStoryboardSegue, sender: AnyObject?) {
-        if let
-            navigationController = segue.destinationViewController as? UINavigationController,
-            detailViewController = navigationController.topViewController as? DetailViewController
-        {
-            func requestForSegue(segue: UIStoryboardSegue) -> Request? {
+    override func prepare(for segue: UIStoryboardSegue, sender: Any?) {
+        if
+            let navigationController = segue.destination as? UINavigationController,
+            let detailViewController = navigationController.topViewController as? DetailViewController {
+            func requestForSegue(_ segue: UIStoryboardSegue) -> Request? {
                 switch segue.identifier! {
                 case "GET":
                     detailViewController.segueIdentifier = "GET"
-                    return Alamofire.request(.GET, "https://httpbin.org/get")
+                    return AF.request("https://httpbin.org/get")
                 case "POST":
                     detailViewController.segueIdentifier = "POST"
-                    return Alamofire.request(.POST, "https://httpbin.org/post")
+                    return AF.request("https://httpbin.org/post", method: .post)
                 case "PUT":
                     detailViewController.segueIdentifier = "PUT"
-                    return Alamofire.request(.PUT, "https://httpbin.org/put")
+                    return AF.request("https://httpbin.org/put", method: .put)
                 case "DELETE":
                     detailViewController.segueIdentifier = "DELETE"
-                    return Alamofire.request(.DELETE, "https://httpbin.org/delete")
+                    return AF.request("https://httpbin.org/delete", method: .delete)
                 case "DOWNLOAD":
                     detailViewController.segueIdentifier = "DOWNLOAD"
-                    let destination = Alamofire.Request.suggestedDownloadDestination(
-                        directory: .CachesDirectory,
-                        domain: .UserDomainMask
-                    )
-                    return Alamofire.download(.GET, "https://httpbin.org/stream/1", destination: destination)
+                    let destination = DownloadRequest.suggestedDownloadDestination(for: .cachesDirectory,
+                                                                                   in: .userDomainMask)
+                    return AF.download("https://httpbin.org/stream/1", to: destination)
                 default:
                     return nil
                 }
@@ -93,5 +81,21 @@ class MasterViewController: UITableViewController {
             }
         }
     }
-}
 
+    // MARK: - UITableViewDelegate
+
+    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        if indexPath.section == 3 && indexPath.row == 0 {
+            print("Reachability Status: \(reachability.status)")
+            tableView.deselectRow(at: indexPath, animated: true)
+        }
+    }
+
+    // MARK: - Private - Reachability
+
+    private func monitorReachability() {
+        reachability.startListening { status in
+            print("Reachability Status Changed: \(status)")
+        }
+    }
+}

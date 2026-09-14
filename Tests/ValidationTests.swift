@@ -1,7 +1,7 @@
 //
 //  ValidationTests.swift
 //
-//  Copyright (c) 2014-2016 Alamofire Software Foundation (http://alamofire.org/)
+//  Copyright (c) 2014-2018 Alamofire Software Foundation (http://alamofire.org/)
 //
 //  Permission is hereby granted, free of charge, to any person obtaining a copy
 //  of this software and associated documentation files (the "Software"), to deal
@@ -26,515 +26,873 @@
 import Foundation
 import XCTest
 
-class StatusCodeValidationTestCase: BaseTestCase {
+final class StatusCodeValidationTestCase: BaseTestCase {
+    @MainActor
     func testThatValidationForRequestWithAcceptableStatusCodeResponseSucceeds() {
         // Given
-        let URLString = "https://httpbin.org/status/200"
-        let expectation = expectationWithDescription("request should return 200 status code")
+        let session = stored(Session())
+        let endpoint = Endpoint.status(200)
 
-        var error: NSError?
+        let expectation1 = expectation(description: "request should return 200 status code")
+        let expectation2 = expectation(description: "download should return 200 status code")
+
+        var requestError: AFError?
+        var downloadError: AFError?
 
         // When
-        Alamofire.request(.GET, URLString)
+        session.request(endpoint)
             .validate(statusCode: 200..<300)
-            .response { _, _, _, responseError in
-                error = responseError
-                expectation.fulfill()
+            .response { resp in
+                requestError = resp.error
+                expectation1.fulfill()
             }
 
-        waitForExpectationsWithTimeout(timeout, handler: nil)
+        session.download(endpoint)
+            .validate(statusCode: 200..<300)
+            .response { resp in
+                downloadError = resp.error
+                expectation2.fulfill()
+            }
+
+        waitForExpectations(timeout: timeout)
 
         // Then
-        XCTAssertNil(error)
+        XCTAssertNil(requestError)
+        XCTAssertNil(downloadError)
     }
 
+    @MainActor
     func testThatValidationForRequestWithUnacceptableStatusCodeResponseFails() {
         // Given
-        let URLString = "https://httpbin.org/status/404"
-        let expectation = expectationWithDescription("request should return 404 status code")
+        let session = stored(Session())
+        let endpoint = Endpoint.status(404)
 
-        var error: NSError?
+        let expectation1 = expectation(description: "request should return 404 status code")
+        let expectation2 = expectation(description: "download should return 404 status code")
+
+        var requestError: AFError?
+        var downloadError: AFError?
 
         // When
-        Alamofire.request(.GET, URLString)
+        session.request(endpoint)
             .validate(statusCode: [200])
-            .response { _, _, _, responseError in
-                error = responseError
-                expectation.fulfill()
+            .response { resp in
+                requestError = resp.error
+                expectation1.fulfill()
             }
 
-        waitForExpectationsWithTimeout(timeout, handler: nil)
+        session.download(endpoint)
+            .validate(statusCode: [200])
+            .response { resp in
+                downloadError = resp.error
+                expectation2.fulfill()
+            }
+
+        waitForExpectations(timeout: timeout)
 
         // Then
-        XCTAssertNotNil(error)
+        XCTAssertNotNil(requestError)
+        XCTAssertNotNil(downloadError)
 
-        if let error = error {
-            XCTAssertEqual(error.domain, Error.Domain)
-            XCTAssertEqual(error.code, Error.Code.StatusCodeValidationFailed.rawValue)
-            XCTAssertEqual(error.userInfo[Error.UserInfoKeys.StatusCode] as? Int, 404)
-        } else {
-            XCTFail("error should not be nil")
+        for error in [requestError, downloadError] {
+            XCTAssertEqual(error?.isUnacceptableStatusCode, true)
+            XCTAssertEqual(error?.responseCode, 404)
         }
     }
 
+    @MainActor
     func testThatValidationForRequestWithNoAcceptableStatusCodesFails() {
         // Given
-        let URLString = "https://httpbin.org/status/201"
-        let expectation = expectationWithDescription("request should return 201 status code")
+        let session = stored(Session())
+        let endpoint = Endpoint.status(201)
 
-        var error: NSError?
+        let expectation1 = expectation(description: "request should return 201 status code")
+        let expectation2 = expectation(description: "download should return 201 status code")
+
+        var requestError: AFError?
+        var downloadError: AFError?
 
         // When
-        Alamofire.request(.GET, URLString)
+        session.request(endpoint)
             .validate(statusCode: [])
-            .response { _, _, _, responseError in
-                error = responseError
-                expectation.fulfill()
+            .response { resp in
+                requestError = resp.error
+                expectation1.fulfill()
             }
 
-        waitForExpectationsWithTimeout(timeout, handler: nil)
+        session.download(endpoint)
+            .validate(statusCode: [])
+            .response { resp in
+                downloadError = resp.error
+                expectation2.fulfill()
+            }
+
+        waitForExpectations(timeout: timeout)
 
         // Then
-        XCTAssertNotNil(error)
+        XCTAssertNotNil(requestError)
+        XCTAssertNotNil(downloadError)
 
-        if let error = error {
-            XCTAssertEqual(error.domain, Error.Domain)
-            XCTAssertEqual(error.code, Error.Code.StatusCodeValidationFailed.rawValue)
-            XCTAssertEqual(error.userInfo[Error.UserInfoKeys.StatusCode] as? Int, 201)
-        } else {
-            XCTFail("error should not be nil")
+        for error in [requestError, downloadError] {
+            XCTAssertEqual(error?.isUnacceptableStatusCode, true)
+            XCTAssertEqual(error?.responseCode, 201)
         }
     }
 }
 
 // MARK: -
 
-class ContentTypeValidationTestCase: BaseTestCase {
+final class ContentTypeValidationTestCase: BaseTestCase {
+    @MainActor
     func testThatValidationForRequestWithAcceptableContentTypeResponseSucceeds() {
         // Given
-        let URLString = "https://httpbin.org/ip"
-        let expectation = expectationWithDescription("request should succeed and return ip")
+        let session = stored(Session())
+        let endpoint = Endpoint.ip
 
-        var error: NSError?
+        let expectation1 = expectation(description: "request should succeed and return ip")
+        let expectation2 = expectation(description: "download should succeed and return ip")
+
+        var requestError: AFError?
+        var downloadError: AFError?
 
         // When
-        Alamofire.request(.GET, URLString)
+        session.request(endpoint)
             .validate(contentType: ["application/json"])
-            .validate(contentType: ["application/json;charset=utf8"])
-            .validate(contentType: ["application/json;q=0.8;charset=utf8"])
-            .response { _, _, _, responseError in
-                error = responseError
-                expectation.fulfill()
+            .validate(contentType: ["application/json; charset=utf-8"])
+            .validate(contentType: ["application/json; q=0.8; charset=utf-8"])
+            .response { resp in
+                requestError = resp.error
+                expectation1.fulfill()
             }
 
-        waitForExpectationsWithTimeout(timeout, handler: nil)
+        session.download(endpoint)
+            .validate(contentType: ["application/json"])
+            .validate(contentType: ["application/json; charset=utf-8"])
+            .validate(contentType: ["application/json; q=0.8; charset=utf-8"])
+            .response { resp in
+                downloadError = resp.error
+                expectation2.fulfill()
+            }
+
+        waitForExpectations(timeout: timeout)
 
         // Then
-        XCTAssertNil(error)
+        XCTAssertNil(requestError)
+        XCTAssertNil(downloadError)
     }
 
+    @MainActor
     func testThatValidationForRequestWithAcceptableWildcardContentTypeResponseSucceeds() {
         // Given
-        let URLString = "https://httpbin.org/ip"
-        let expectation = expectationWithDescription("request should succeed and return ip")
+        let session = stored(Session())
+        let endpoint = Endpoint.ip
 
-        var error: NSError?
+        let expectation1 = expectation(description: "request should succeed and return ip")
+        let expectation2 = expectation(description: "download should succeed and return ip")
+
+        var requestError: AFError?
+        var downloadError: AFError?
 
         // When
-        Alamofire.request(.GET, URLString)
+        session.request(endpoint)
             .validate(contentType: ["*/*"])
             .validate(contentType: ["application/*"])
             .validate(contentType: ["*/json"])
-            .response { _, _, _, responseError in
-                error = responseError
-                expectation.fulfill()
+            .response { resp in
+                requestError = resp.error
+                expectation1.fulfill()
             }
 
-        waitForExpectationsWithTimeout(timeout, handler: nil)
+        session.download(endpoint)
+            .validate(contentType: ["*/*"])
+            .validate(contentType: ["application/*"])
+            .validate(contentType: ["*/json"])
+            .response { resp in
+                downloadError = resp.error
+                expectation2.fulfill()
+            }
+
+        waitForExpectations(timeout: timeout)
 
         // Then
-        XCTAssertNil(error)
+        XCTAssertNil(requestError)
+        XCTAssertNil(downloadError)
     }
 
+    @MainActor
     func testThatValidationForRequestWithUnacceptableContentTypeResponseFails() {
         // Given
-        let URLString = "https://httpbin.org/xml"
-        let expectation = expectationWithDescription("request should succeed and return xml")
+        let session = stored(Session())
+        let endpoint = Endpoint.xml
 
-        var error: NSError?
+        let expectation1 = expectation(description: "request should succeed and return xml")
+        let expectation2 = expectation(description: "download should succeed and return xml")
+
+        var requestError: AFError?
+        var downloadError: AFError?
 
         // When
-        Alamofire.request(.GET, URLString)
+        session.request(endpoint)
             .validate(contentType: ["application/octet-stream"])
-            .response { _, _, _, responseError in
-                error = responseError
-                expectation.fulfill()
+            .response { resp in
+                requestError = resp.error
+                expectation1.fulfill()
             }
 
-        waitForExpectationsWithTimeout(timeout, handler: nil)
+        session.download(endpoint)
+            .validate(contentType: ["application/octet-stream"])
+            .response { resp in
+                downloadError = resp.error
+                expectation2.fulfill()
+            }
+
+        waitForExpectations(timeout: timeout)
 
         // Then
-        XCTAssertNotNil(error)
+        XCTAssertNotNil(requestError)
+        XCTAssertNotNil(downloadError)
 
-        if let error = error {
-            XCTAssertEqual(error.domain, Error.Domain)
-            XCTAssertEqual(error.code, Error.Code.ContentTypeValidationFailed.rawValue)
-            XCTAssertEqual(error.userInfo[Error.UserInfoKeys.ContentType] as? String, "application/xml")
-        } else {
-            XCTFail("error should not be nil")
+        for error in [requestError, downloadError] {
+            XCTAssertEqual(error?.isUnacceptableContentType, true)
+            XCTAssertEqual(error?.responseContentType, "application/xml")
+            XCTAssertEqual(error?.acceptableContentTypes?.first, "application/octet-stream")
         }
     }
 
+    @MainActor
+    func testThatContentTypeValidationFailureSortsPossibleContentTypes() {
+        // Given
+        let session = stored(Session())
+        let endpoint = Endpoint.xml
+
+        let requestDidCompleteExpectation = expectation(description: "request should succeed and return xml")
+        let downloadDidCompleteExpectation = expectation(description: "download should succeed and return xml")
+
+        var requestError: AFError?
+        var downloadError: AFError?
+
+        let acceptableContentTypes = [ // Sorted in a random order, not alphabetically
+            "application/octet-stream",
+            "image/gif",
+            "image/x-xbitmap",
+            "image/tiff",
+            "image/jpg",
+            "image/x-bmp",
+            "image/jpeg",
+            "image/x-icon",
+            "image/jp2",
+            "image/png",
+            "image/ico",
+            "image/bmp",
+            "image/x-ms-bmp",
+            "image/x-win-bitmap"
+        ]
+
+        // When
+        session.request(endpoint)
+            .validate(contentType: acceptableContentTypes)
+            .response { resp in
+                requestError = resp.error
+                requestDidCompleteExpectation.fulfill()
+            }
+
+        session.download(endpoint)
+            .validate(contentType: acceptableContentTypes)
+            .response { resp in
+                downloadError = resp.error
+                downloadDidCompleteExpectation.fulfill()
+            }
+
+        waitForExpectations(timeout: timeout)
+
+        // Then
+        XCTAssertNotNil(requestError)
+        XCTAssertNotNil(downloadError)
+
+        let expectedAcceptableContentTypes = [ // Sorted in a specific order, alphabetically
+            "application/octet-stream",
+            "image/bmp",
+            "image/gif",
+            "image/ico",
+            "image/jp2",
+            "image/jpeg",
+            "image/jpg",
+            "image/png",
+            "image/tiff",
+            "image/x-bmp",
+            "image/x-icon",
+            "image/x-ms-bmp",
+            "image/x-win-bitmap",
+            "image/x-xbitmap"
+        ]
+
+        for error in [requestError, downloadError] {
+            XCTAssertEqual(error?.isUnacceptableContentType, true)
+            XCTAssertEqual(error?.responseContentType, "application/xml")
+            XCTAssertEqual(error?.acceptableContentTypes, expectedAcceptableContentTypes)
+        }
+    }
+
+    @MainActor
     func testThatValidationForRequestWithNoAcceptableContentTypeResponseFails() {
         // Given
-        let URLString = "https://httpbin.org/xml"
-        let expectation = expectationWithDescription("request should succeed and return xml")
+        let session = stored(Session())
+        let endpoint = Endpoint.xml
 
-        var error: NSError?
+        let expectation1 = expectation(description: "request should succeed and return xml")
+        let expectation2 = expectation(description: "download should succeed and return xml")
+
+        var requestError: AFError?
+        var downloadError: AFError?
 
         // When
-        Alamofire.request(.GET, URLString)
+        session.request(endpoint)
             .validate(contentType: [])
-            .response { _, _, _, responseError in
-                error = responseError
-                expectation.fulfill()
+            .response { resp in
+                requestError = resp.error
+                expectation1.fulfill()
             }
 
-        waitForExpectationsWithTimeout(timeout, handler: nil)
+        session.download(endpoint)
+            .validate(contentType: [])
+            .response { resp in
+                downloadError = resp.error
+                expectation2.fulfill()
+            }
+
+        waitForExpectations(timeout: timeout)
 
         // Then
-        XCTAssertNotNil(error, "error should not be nil")
+        XCTAssertNotNil(requestError)
+        XCTAssertNotNil(downloadError)
 
-        if let error = error {
-            XCTAssertEqual(error.domain, Error.Domain)
-            XCTAssertEqual(error.code, Error.Code.ContentTypeValidationFailed.rawValue)
-            XCTAssertEqual(error.userInfo[Error.UserInfoKeys.ContentType] as? String, "application/xml")
-        } else {
-            XCTFail("error should not be nil")
+        for error in [requestError, downloadError] {
+            XCTAssertEqual(error?.isUnacceptableContentType, true)
+            XCTAssertEqual(error?.responseContentType, "application/xml")
+            XCTAssertEqual(error?.acceptableContentTypes?.isEmpty, true)
         }
     }
 
+    @MainActor
     func testThatValidationForRequestWithNoAcceptableContentTypeResponseSucceedsWhenNoDataIsReturned() {
         // Given
-        let URLString = "https://httpbin.org/status/204"
-        let expectation = expectationWithDescription("request should succeed and return no data")
+        let session = stored(Session())
+        let endpoint = Endpoint.status(204)
 
-        var error: NSError?
+        let expectation1 = expectation(description: "request should succeed and return no data")
+        let expectation2 = expectation(description: "download should succeed and return no data")
+
+        var requestError: AFError?
+        var downloadError: AFError?
 
         // When
-        Alamofire.request(.GET, URLString)
+        session.request(endpoint)
             .validate(contentType: [])
-            .response { _, response, data, responseError in
-                error = responseError
-                expectation.fulfill()
+            .response { resp in
+                requestError = resp.error
+                expectation1.fulfill()
             }
 
-        waitForExpectationsWithTimeout(timeout, handler: nil)
+        session.download(endpoint)
+            .validate(contentType: [])
+            .response { resp in
+                downloadError = resp.error
+                expectation2.fulfill()
+            }
+
+        waitForExpectations(timeout: timeout)
 
         // Then
-        XCTAssertNil(error)
-    }
-
-    func testThatValidationForRequestWithAcceptableWildcardContentTypeResponseSucceedsWhenResponseIsNil() {
-        // Given
-        class MockManager: Manager {
-            override func request(URLRequest: URLRequestConvertible) -> Request {
-                var dataTask: NSURLSessionDataTask!
-
-                dispatch_sync(queue) {
-                    dataTask = self.session.dataTaskWithRequest(URLRequest.URLRequest)
-                }
-
-                let request = MockRequest(session: session, task: dataTask)
-                delegate[request.delegate.task] = request.delegate
-
-                if startRequestsImmediately {
-                    request.resume()
-                }
-
-                return request
-            }
-        }
-
-        class MockRequest: Request {
-            override var response: NSHTTPURLResponse? {
-                return MockHTTPURLResponse(
-                    URL: NSURL(string: request!.URLString)!,
-                    statusCode: 204,
-                    HTTPVersion: "HTTP/1.1",
-                    headerFields: nil
-                )
-            }
-        }
-
-        class MockHTTPURLResponse: NSHTTPURLResponse {
-            override var MIMEType: String? { return nil }
-        }
-
-        let manager: Manager = {
-            let configuration: NSURLSessionConfiguration = {
-                let configuration = NSURLSessionConfiguration.ephemeralSessionConfiguration()
-                configuration.HTTPAdditionalHeaders = Alamofire.Manager.defaultHTTPHeaders
-
-                return configuration
-            }()
-
-            return MockManager(configuration: configuration)
-        }()
-
-        let URLString = "https://httpbin.org/delete"
-        let expectation = expectationWithDescription("request should be stubbed and return 204 status code")
-
-        var response: NSHTTPURLResponse?
-        var data: NSData?
-        var error: NSError?
-
-        // When
-        manager.request(.DELETE, URLString)
-            .validate(contentType: ["*/*"])
-            .response { _, responseResponse, responseData, responseError in
-                response = responseResponse
-                data = responseData
-                error = responseError
-
-                expectation.fulfill()
-        }
-
-        waitForExpectationsWithTimeout(timeout, handler: nil)
-
-        // Then
-        XCTAssertNotNil(response)
-        XCTAssertNotNil(data)
-        XCTAssertNil(error)
-
-        if let response = response {
-            XCTAssertEqual(response.statusCode, 204)
-            XCTAssertNil(response.MIMEType)
-        }
+        XCTAssertNil(requestError)
+        XCTAssertNil(downloadError)
     }
 }
 
 // MARK: -
 
-class MultipleValidationTestCase: BaseTestCase {
+final class MultipleValidationTestCase: BaseTestCase {
+    @MainActor
     func testThatValidationForRequestWithAcceptableStatusCodeAndContentTypeResponseSucceeds() {
         // Given
-        let URLString = "https://httpbin.org/ip"
-        let expectation = expectationWithDescription("request should succeed and return ip")
+        let session = stored(Session())
+        let endpoint = Endpoint.ip
 
-        var error: NSError?
+        let expectation1 = expectation(description: "request should succeed and return ip")
+        let expectation2 = expectation(description: "request should succeed and return ip")
+
+        var requestError: AFError?
+        var downloadError: AFError?
 
         // When
-        Alamofire.request(.GET, URLString)
+        session.request(endpoint)
             .validate(statusCode: 200..<300)
             .validate(contentType: ["application/json"])
-            .response { _, _, _, responseError in
-                error = responseError
-                expectation.fulfill()
+            .response { resp in
+                requestError = resp.error
+                expectation1.fulfill()
             }
 
-        waitForExpectationsWithTimeout(timeout, handler: nil)
+        session.download(endpoint)
+            .validate(statusCode: 200..<300)
+            .validate(contentType: ["application/json"])
+            .response { resp in
+                downloadError = resp.error
+                expectation2.fulfill()
+            }
+
+        waitForExpectations(timeout: timeout)
 
         // Then
-        XCTAssertNil(error)
+        XCTAssertNil(requestError)
+        XCTAssertNil(downloadError)
     }
 
+    @MainActor
     func testThatValidationForRequestWithUnacceptableStatusCodeAndContentTypeResponseFailsWithStatusCodeError() {
         // Given
-        let URLString = "https://httpbin.org/xml"
-        let expectation = expectationWithDescription("request should succeed and return xml")
+        let session = stored(Session())
+        let endpoint = Endpoint.xml
 
-        var error: NSError?
+        let expectation1 = expectation(description: "request should succeed and return xml")
+        let expectation2 = expectation(description: "download should succeed and return xml")
+
+        var requestError: AFError?
+        var downloadError: AFError?
 
         // When
-        Alamofire.request(.GET, URLString)
+        session.request(endpoint)
             .validate(statusCode: 400..<600)
             .validate(contentType: ["application/octet-stream"])
-            .response { _, _, _, responseError in
-                error = responseError
-                expectation.fulfill()
+            .response { resp in
+                requestError = resp.error
+                expectation1.fulfill()
             }
 
-        waitForExpectationsWithTimeout(timeout, handler: nil)
+        session.download(endpoint)
+            .validate(statusCode: 400..<600)
+            .validate(contentType: ["application/octet-stream"])
+            .response { resp in
+                downloadError = resp.error
+                expectation2.fulfill()
+            }
+
+        waitForExpectations(timeout: timeout)
 
         // Then
-        XCTAssertNotNil(error)
+        XCTAssertNotNil(requestError)
+        XCTAssertNotNil(downloadError)
 
-        if let error = error {
-            XCTAssertEqual(error.domain, Error.Domain)
-            XCTAssertEqual(error.code, Error.Code.StatusCodeValidationFailed.rawValue)
-            XCTAssertEqual(error.userInfo[Error.UserInfoKeys.StatusCode] as? Int, 200)
-        } else {
-            XCTFail("error should not be nil")
+        for error in [requestError, downloadError] {
+            XCTAssertEqual(error?.isUnacceptableStatusCode, true)
+            XCTAssertEqual(error?.responseCode, 200)
         }
     }
 
+    @MainActor
     func testThatValidationForRequestWithUnacceptableStatusCodeAndContentTypeResponseFailsWithContentTypeError() {
         // Given
-        let URLString = "https://httpbin.org/xml"
-        let expectation = expectationWithDescription("request should succeed and return xml")
+        let session = stored(Session())
+        let endpoint = Endpoint.xml
 
-        var error: NSError?
+        let expectation1 = expectation(description: "request should succeed and return xml")
+        let expectation2 = expectation(description: "download should succeed and return xml")
+
+        var requestError: AFError?
+        var downloadError: AFError?
 
         // When
-        Alamofire.request(.GET, URLString)
+        session.request(endpoint)
             .validate(contentType: ["application/octet-stream"])
             .validate(statusCode: 400..<600)
-            .response { _, _, _, responseError in
-                error = responseError
-                expectation.fulfill()
-        }
+            .response { resp in
+                requestError = resp.error
+                expectation1.fulfill()
+            }
 
-        waitForExpectationsWithTimeout(timeout, handler: nil)
+        session.download(endpoint)
+            .validate(contentType: ["application/octet-stream"])
+            .validate(statusCode: 400..<600)
+            .response { resp in
+                downloadError = resp.error
+                expectation2.fulfill()
+            }
+
+        waitForExpectations(timeout: timeout)
 
         // Then
-        XCTAssertNotNil(error)
+        XCTAssertNotNil(requestError)
+        XCTAssertNotNil(downloadError)
 
-        if let error = error {
-            XCTAssertEqual(error.domain, Error.Domain)
-            XCTAssertEqual(error.code, Error.Code.ContentTypeValidationFailed.rawValue)
-            XCTAssertEqual(error.userInfo[Error.UserInfoKeys.ContentType] as? String, "application/xml")
-        } else {
-            XCTFail("error should not be nil")
+        for error in [requestError, downloadError] {
+            XCTAssertEqual(error?.isUnacceptableContentType, true)
+            XCTAssertEqual(error?.responseContentType, "application/xml")
+            XCTAssertEqual(error?.acceptableContentTypes?.first, "application/octet-stream")
         }
     }
 }
 
 // MARK: -
 
-class AutomaticValidationTestCase: BaseTestCase {
+final class AutomaticValidationTestCase: BaseTestCase {
+    @MainActor
     func testThatValidationForRequestWithAcceptableStatusCodeAndContentTypeResponseSucceeds() {
         // Given
-        let URL = NSURL(string: "https://httpbin.org/ip")!
-        let mutableURLRequest = NSMutableURLRequest(URL: URL)
-        mutableURLRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        let session = stored(Session())
+        let urlRequest = Endpoint.ip.modifying(\.headers, to: [.accept("application/json")])
 
-        let expectation = expectationWithDescription("request should succeed and return ip")
+        let expectation1 = expectation(description: "request should succeed and return ip")
+        let expectation2 = expectation(description: "download should succeed and return ip")
 
-        var error: NSError?
+        var requestError: AFError?
+        var downloadError: AFError?
 
         // When
-        Alamofire.request(mutableURLRequest)
-            .validate()
-            .response { _, _, _, responseError in
-                error = responseError
-                expectation.fulfill()
-            }
+        session.request(urlRequest).validate().response { resp in
+            requestError = resp.error
+            expectation1.fulfill()
+        }
 
-        waitForExpectationsWithTimeout(timeout, handler: nil)
+        session.download(urlRequest).validate().response { resp in
+            downloadError = resp.error
+            expectation2.fulfill()
+        }
+
+        waitForExpectations(timeout: timeout)
 
         // Then
-        XCTAssertNil(error)
+        XCTAssertNil(requestError)
+        XCTAssertNil(downloadError)
     }
 
+    @MainActor
     func testThatValidationForRequestWithUnacceptableStatusCodeResponseFails() {
         // Given
-        let URLString = "https://httpbin.org/status/404"
-        let expectation = expectationWithDescription("request should return 404 status code")
+        let session = stored(Session())
+        let request = Endpoint.status(404)
 
-        var error: NSError?
+        let expectation1 = expectation(description: "request should return 404 status code")
+        let expectation2 = expectation(description: "download should return 404 status code")
+
+        var requestError: AFError?
+        var downloadError: AFError?
 
         // When
-        Alamofire.request(.GET, URLString)
+        session.request(request)
             .validate()
-            .response { _, _, _, responseError in
-                error = responseError
-                expectation.fulfill()
+            .response { resp in
+                requestError = resp.error
+                expectation1.fulfill()
             }
 
-        waitForExpectationsWithTimeout(timeout, handler: nil)
+        session.download(request)
+            .validate()
+            .response { resp in
+                downloadError = resp.error
+                expectation2.fulfill()
+            }
+
+        waitForExpectations(timeout: timeout)
 
         // Then
-        XCTAssertNotNil(error)
+        XCTAssertNotNil(requestError)
+        XCTAssertNotNil(downloadError)
 
-        if let error = error {
-            XCTAssertEqual(error.domain, Error.Domain)
-            XCTAssertEqual(error.code, Error.Code.StatusCodeValidationFailed.rawValue)
-            XCTAssertEqual(error.userInfo[Error.UserInfoKeys.StatusCode] as? Int, 404)
-        } else {
-            XCTFail("error should not be nil")
+        for error in [requestError, downloadError] {
+            XCTAssertEqual(error?.isUnacceptableStatusCode, true)
+            XCTAssertEqual(error?.responseCode, 404)
         }
     }
 
+    @MainActor
     func testThatValidationForRequestWithAcceptableWildcardContentTypeResponseSucceeds() {
         // Given
-        let URL = NSURL(string: "https://httpbin.org/ip")!
-        let mutableURLRequest = NSMutableURLRequest(URL: URL)
-        mutableURLRequest.setValue("application/*", forHTTPHeaderField: "Accept")
+        let session = stored(Session())
+        let urlRequest = Endpoint.ip.modifying(\.headers, to: [.accept("application/*")])
 
-        let expectation = expectationWithDescription("request should succeed and return ip")
+        let expectation1 = expectation(description: "request should succeed and return ip")
+        let expectation2 = expectation(description: "download should succeed and return ip")
 
-        var error: NSError?
+        var requestError: AFError?
+        var downloadError: AFError?
 
         // When
-        Alamofire.request(mutableURLRequest)
-            .validate()
-            .response { _, _, _, responseError in
-                error = responseError
-                expectation.fulfill()
-            }
+        session.request(urlRequest).validate().response { resp in
+            requestError = resp.error
+            expectation1.fulfill()
+        }
 
-        waitForExpectationsWithTimeout(timeout, handler: nil)
+        session.download(urlRequest).validate().response { resp in
+            downloadError = resp.error
+            expectation2.fulfill()
+        }
+
+        waitForExpectations(timeout: timeout)
 
         // Then
-        XCTAssertNil(error)
+        XCTAssertNil(requestError)
+        XCTAssertNil(downloadError)
     }
 
+    @MainActor
     func testThatValidationForRequestWithAcceptableComplexContentTypeResponseSucceeds() {
         // Given
-        let URL = NSURL(string: "https://httpbin.org/xml")!
-        let mutableURLRequest = NSMutableURLRequest(URL: URL)
+        let session = stored(Session())
+        var urlRequest = Endpoint.xml.urlRequest
 
         let headerValue = "text/xml, application/xml, application/xhtml+xml, text/html;q=0.9, text/plain;q=0.8,*/*;q=0.5"
-        mutableURLRequest.setValue(headerValue, forHTTPHeaderField: "Accept")
+        urlRequest.headers["Accept"] = headerValue
 
-        let expectation = expectationWithDescription("request should succeed and return xml")
+        let expectation1 = expectation(description: "request should succeed and return xml")
+        let expectation2 = expectation(description: "request should succeed and return xml")
 
-        var error: NSError?
+        var requestError: AFError?
+        var downloadError: AFError?
 
         // When
-        Alamofire.request(mutableURLRequest)
-            .validate()
-            .response { _, _, _, responseError in
-                error = responseError
-                expectation.fulfill()
-            }
+        session.request(urlRequest).validate().response { resp in
+            requestError = resp.error
+            expectation1.fulfill()
+        }
 
-        waitForExpectationsWithTimeout(timeout, handler: nil)
+        session.download(urlRequest).validate().response { resp in
+            downloadError = resp.error
+            expectation2.fulfill()
+        }
+
+        waitForExpectations(timeout: timeout)
 
         // Then
-        XCTAssertNil(error)
+        XCTAssertNil(requestError)
+        XCTAssertNil(downloadError)
     }
 
+    @MainActor
     func testThatValidationForRequestWithUnacceptableContentTypeResponseFails() {
         // Given
-        let URL = NSURL(string: "https://httpbin.org/xml")!
-        let mutableURLRequest = NSMutableURLRequest(URL: URL)
-        mutableURLRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        let session = stored(Session())
+        let urlRequest = Endpoint.xml.modifying(\.headers, to: [.accept("application/json")])
 
-        let expectation = expectationWithDescription("request should succeed and return xml")
+        let expectation1 = expectation(description: "request should succeed and return xml")
+        let expectation2 = expectation(description: "download should succeed and return xml")
 
-        var error: NSError?
+        var requestError: AFError?
+        var downloadError: AFError?
 
         // When
-        Alamofire.request(mutableURLRequest)
-            .validate()
-            .response { _, _, _, responseError in
-                error = responseError
-                expectation.fulfill()
-            }
+        session.request(urlRequest).validate().response { resp in
+            requestError = resp.error
+            expectation1.fulfill()
+        }
 
-        waitForExpectationsWithTimeout(timeout, handler: nil)
+        session.download(urlRequest).validate().response { resp in
+            downloadError = resp.error
+            expectation2.fulfill()
+        }
+
+        waitForExpectations(timeout: timeout)
 
         // Then
-        XCTAssertNotNil(error)
+        XCTAssertNotNil(requestError)
+        XCTAssertNotNil(downloadError)
 
-        if let error = error {
-            XCTAssertEqual(error.domain, Error.Domain)
-            XCTAssertEqual(error.code, Error.Code.ContentTypeValidationFailed.rawValue)
-            XCTAssertEqual(error.userInfo[Error.UserInfoKeys.ContentType] as? String, "application/xml")
-        } else {
-            XCTFail("error should not be nil")
+        for error in [requestError, downloadError] {
+            XCTAssertEqual(error?.isUnacceptableContentType, true)
+            XCTAssertEqual(error?.responseContentType, "application/xml")
+            XCTAssertEqual(error?.acceptableContentTypes?.first, "application/json")
         }
+    }
+}
+
+// MARK: -
+
+private enum ValidationError: Error {
+    case missingData, missingFile, fileReadFailed
+}
+
+extension DataRequest {
+    func validateDataExists() -> Self {
+        validate { _, _, data in
+            guard data != nil else { return .failure(ValidationError.missingData) }
+            return .success(())
+        }
+    }
+
+    func validate(with error: any Error) -> Self {
+        validate { _, _, _ in .failure(error) }
+    }
+}
+
+extension DownloadRequest {
+    func validateDataExists() -> Self {
+        validate { [unowned self] _, _, _ in
+            guard let validFileURL = fileURL else { return .failure(ValidationError.missingFile) }
+
+            do {
+                _ = try Data(contentsOf: validFileURL)
+                return .success(())
+            } catch {
+                return .failure(ValidationError.fileReadFailed)
+            }
+        }
+    }
+
+    func validate(with error: any Error) -> Self {
+        validate { _, _, _ in .failure(error) }
+    }
+}
+
+// MARK: -
+
+final class CustomValidationTestCase: BaseTestCase {
+    @MainActor
+    func testThatCustomValidationClosureHasAccessToServerResponseData() {
+        // Given
+        let session = stored(Session())
+        let endpoint = Endpoint()
+
+        let expectation1 = expectation(description: "request should return 200 status code")
+        let expectation2 = expectation(description: "download should return 200 status code")
+
+        var requestError: AFError?
+        var downloadError: AFError?
+
+        // When
+        session.request(endpoint)
+            .validate { _, _, data in
+                guard data != nil else { return .failure(ValidationError.missingData) }
+                return .success(())
+            }
+            .response { resp in
+                requestError = resp.error
+                expectation1.fulfill()
+            }
+
+        session.download(endpoint)
+            .validate { _, _, fileURL in
+                guard let fileURL else { return .failure(ValidationError.missingFile) }
+
+                do {
+                    _ = try Data(contentsOf: fileURL)
+                    return .success(())
+                } catch {
+                    return .failure(ValidationError.fileReadFailed)
+                }
+            }
+            .response { resp in
+                downloadError = resp.error
+                expectation2.fulfill()
+            }
+
+        waitForExpectations(timeout: timeout)
+
+        // Then
+        XCTAssertNil(requestError)
+        XCTAssertNil(downloadError)
+    }
+
+    @MainActor
+    func testThatCustomValidationCanThrowCustomError() {
+        // Given
+        let session = stored(Session())
+        let endpoint = Endpoint()
+
+        let expectation1 = expectation(description: "request should return 200 status code")
+        let expectation2 = expectation(description: "download should return 200 status code")
+
+        var requestError: AFError?
+        var downloadError: AFError?
+
+        // When
+        session.request(endpoint)
+            .validate { _, _, _ in .failure(ValidationError.missingData) }
+            .validate { _, _, _ in .failure(ValidationError.missingFile) } // should be ignored
+            .response { resp in
+                requestError = resp.error
+                expectation1.fulfill()
+            }
+
+        session.download(endpoint)
+            .validate { _, _, _ in .failure(ValidationError.missingFile) }
+            .validate { _, _, _ in .failure(ValidationError.fileReadFailed) } // should be ignored
+            .response { resp in
+                downloadError = resp.error
+                expectation2.fulfill()
+            }
+
+        waitForExpectations(timeout: timeout)
+
+        // Then
+        XCTAssertEqual(requestError?.asAFError?.underlyingError as? ValidationError, .missingData)
+        XCTAssertEqual(downloadError?.asAFError?.underlyingError as? ValidationError, .missingFile)
+    }
+
+    @MainActor
+    func testThatValidationExtensionHasAccessToServerResponseData() {
+        // Given
+        let session = stored(Session())
+        let endpoint = Endpoint()
+
+        let expectation1 = expectation(description: "request should return 200 status code")
+        let expectation2 = expectation(description: "download should return 200 status code")
+
+        var requestError: AFError?
+        var downloadError: AFError?
+
+        // When
+        session.request(endpoint)
+            .validateDataExists()
+            .response { resp in
+                requestError = resp.error
+                expectation1.fulfill()
+            }
+
+        session.download(endpoint)
+            .validateDataExists()
+            .response { resp in
+                downloadError = resp.error
+                expectation2.fulfill()
+            }
+
+        waitForExpectations(timeout: timeout)
+
+        // Then
+        XCTAssertNil(requestError)
+        XCTAssertNil(downloadError)
+    }
+
+    @MainActor
+    func testThatValidationExtensionCanThrowCustomError() {
+        // Given
+        let session = stored(Session())
+        let endpoint = Endpoint()
+
+        let expectation1 = expectation(description: "request should return 200 status code")
+        let expectation2 = expectation(description: "download should return 200 status code")
+
+        var requestError: AFError?
+        var downloadError: AFError?
+
+        // When
+        session.request(endpoint)
+            .validate(with: ValidationError.missingData)
+            .validate(with: ValidationError.missingFile) // should be ignored
+            .response { resp in
+                requestError = resp.error
+                expectation1.fulfill()
+            }
+
+        session.download(endpoint)
+            .validate(with: ValidationError.missingFile)
+            .validate(with: ValidationError.fileReadFailed) // should be ignored
+            .response { resp in
+                downloadError = resp.error
+                expectation2.fulfill()
+            }
+
+        waitForExpectations(timeout: timeout)
+
+        // Then
+        XCTAssertEqual(requestError?.asAFError?.underlyingError as? ValidationError, .missingData)
+        XCTAssertEqual(downloadError?.asAFError?.underlyingError as? ValidationError, .missingFile)
     }
 }

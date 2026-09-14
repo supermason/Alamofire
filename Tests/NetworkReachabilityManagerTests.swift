@@ -1,7 +1,7 @@
 //
 //  NetworkReachabilityManagerTests.swift
 //
-//  Copyright (c) 2014-2016 Alamofire Software Foundation (http://alamofire.org/)
+//  Copyright (c) 2014-2018 Alamofire Software Foundation (http://alamofire.org/)
 //
 //  Permission is hereby granted, free of charge, to any person obtaining a copy
 //  of this software and associated documentation files (the "Software"), to deal
@@ -22,13 +22,19 @@
 //  THE SOFTWARE.
 //
 
+#if canImport(SystemConfiguration)
+
 @testable import Alamofire
 import Foundation
 import SystemConfiguration
 import XCTest
 
-class NetworkReachabilityManagerTestCase: BaseTestCase {
-
+@available(macOS, deprecated: 14.4)
+@available(iOS, deprecated: 17.4)
+@available(watchOS, deprecated: 9.4)
+@available(tvOS, deprecated: 17.4)
+@available(visionOS, deprecated: 1.4)
+final class NetworkReachabilityManagerTestCase: BaseTestCase {
     // MARK: - Tests - Initialization
 
     func testThatManagerCanBeInitializedFromHost() {
@@ -52,9 +58,9 @@ class NetworkReachabilityManagerTestCase: BaseTestCase {
         let manager = NetworkReachabilityManager(host: "localhost")
 
         // Then
-        XCTAssertEqual(manager?.networkReachabilityStatus, .Reachable(.EthernetOrWiFi))
+        XCTAssertEqual(manager?.status, .reachable(.ethernetOrWiFi))
         XCTAssertEqual(manager?.isReachable, true)
-        XCTAssertEqual(manager?.isReachableOnWWAN, false)
+        XCTAssertEqual(manager?.isReachableOnCellular, false)
         XCTAssertEqual(manager?.isReachableOnEthernetOrWiFi, true)
     }
 
@@ -63,9 +69,9 @@ class NetworkReachabilityManagerTestCase: BaseTestCase {
         let manager = NetworkReachabilityManager(host: "localhost")
 
         // Then
-        XCTAssertEqual(manager?.networkReachabilityStatus, .Reachable(.EthernetOrWiFi))
+        XCTAssertEqual(manager?.status, .reachable(.ethernetOrWiFi))
         XCTAssertEqual(manager?.isReachable, true)
-        XCTAssertEqual(manager?.isReachableOnWWAN, false)
+        XCTAssertEqual(manager?.isReachableOnCellular, false)
         XCTAssertEqual(manager?.isReachableOnEthernetOrWiFi, true)
     }
 
@@ -74,149 +80,233 @@ class NetworkReachabilityManagerTestCase: BaseTestCase {
         let manager = NetworkReachabilityManager()
 
         // Then
-        XCTAssertEqual(manager?.networkReachabilityStatus, .Reachable(.EthernetOrWiFi))
+        XCTAssertEqual(manager?.status, .reachable(.ethernetOrWiFi))
         XCTAssertEqual(manager?.isReachable, true)
-        XCTAssertEqual(manager?.isReachableOnWWAN, false)
+        XCTAssertEqual(manager?.isReachableOnCellular, false)
         XCTAssertEqual(manager?.isReachableOnEthernetOrWiFi, true)
     }
 
-    func testThatHostManagerCanBeDeinitialized() {
+    func testThatZeroManagerCanBeProperlyRestarted() {
         // Given
-        var manager: NetworkReachabilityManager? = NetworkReachabilityManager(host: "localhost")
+        let manager = NetworkReachabilityManager()
+        let first = expectation(description: "first listener notified")
+        let second = expectation(description: "second listener notified")
 
         // When
-        manager = nil
+        manager?.startListening { _ in
+            first.fulfill()
+        }
+        wait(for: [first], timeout: timeout)
+
+        manager?.stopListening()
+
+        manager?.startListening { _ in
+            second.fulfill()
+        }
+        wait(for: [second], timeout: timeout)
 
         // Then
-        XCTAssertNil(manager)
+        XCTAssertEqual(manager?.status, .reachable(.ethernetOrWiFi))
     }
 
-    func testThatAddressManagerCanBeDeinitialized() {
-        // Given
-        var manager: NetworkReachabilityManager? = NetworkReachabilityManager()
-
-        // When
-        manager = nil
-
-        // Then
-        XCTAssertNil(manager)
-    }
-
-    // MARK: - Tests - Listener
-
-    func testThatHostManagerIsNotifiedWhenStartListeningIsCalled() {
+    func testThatHostManagerCanBeProperlyRestarted() {
         // Given
         let manager = NetworkReachabilityManager(host: "localhost")
-        let expectation = expectationWithDescription("listener closure should be executed")
+        let first = expectation(description: "first listener notified")
+        let second = expectation(description: "second listener notified")
 
+        // When
+        manager?.startListening { _ in
+            first.fulfill()
+        }
+        wait(for: [first], timeout: timeout)
+
+        manager?.stopListening()
+
+        manager?.startListening { _ in
+            second.fulfill()
+        }
+        wait(for: [second], timeout: timeout)
+
+        // Then
+        XCTAssertEqual(manager?.status, .reachable(.ethernetOrWiFi))
+    }
+
+    @MainActor
+    func testThatHostManagerCanBeDeinitialized() {
+        // Given
+        let expect = expectation(description: "reachability queue should clear")
+        var manager: NetworkReachabilityManager? = NetworkReachabilityManager(host: "localhost")
+        weak var weakManager = manager
+
+        // When
+        manager?.startListening(onUpdatePerforming: { _ in })
+        manager?.stopListening()
+        manager?.reachabilityQueue.async { expect.fulfill() }
+        manager = nil
+
+        waitForExpectations(timeout: timeout)
+
+        // Then
+        XCTAssertNil(manager, "strong reference should be nil")
+        XCTAssertNil(weakManager, "weak reference should be nil")
+    }
+
+    @MainActor
+    func testThatAddressManagerCanBeDeinitialized() {
+        // Given
+        let expect = expectation(description: "reachability queue should clear")
+        var manager: NetworkReachabilityManager? = NetworkReachabilityManager()
+        weak var weakManager = manager
+
+        // When
+        manager?.startListening(onUpdatePerforming: { _ in })
+        manager?.stopListening()
+        manager?.reachabilityQueue.async { expect.fulfill() }
+        manager = nil
+
+        waitForExpectations(timeout: timeout)
+
+        // Then
+        XCTAssertNil(manager, "strong reference should be nil")
+        XCTAssertNil(weakManager, "weak reference should be nil")
+    }
+
+    // MARK: - Listener
+
+    @MainActor
+    func testThatHostManagerIsNotifiedWhenStartListeningIsCalled() {
+        // Given
+        guard let manager = NetworkReachabilityManager(host: "store.apple.com") else {
+            XCTFail("manager should NOT be nil")
+            return
+        }
+
+        let expectation = expectation(description: "listener closure should be executed")
         var networkReachabilityStatus: NetworkReachabilityManager.NetworkReachabilityStatus?
 
-        manager?.listener = { status in
+        // When
+        manager.startListening { status in
+            guard networkReachabilityStatus == nil else { return }
             networkReachabilityStatus = status
             expectation.fulfill()
         }
-
-        // When
-        manager?.startListening()
-        waitForExpectationsWithTimeout(timeout, handler: nil)
+        waitForExpectations(timeout: timeout)
 
         // Then
-        XCTAssertEqual(networkReachabilityStatus, .Reachable(.EthernetOrWiFi))
+        XCTAssertEqual(networkReachabilityStatus, .reachable(.ethernetOrWiFi))
     }
 
+    @MainActor
     func testThatAddressManagerIsNotifiedWhenStartListeningIsCalled() {
         // Given
         let manager = NetworkReachabilityManager()
-        let expectation = expectationWithDescription("listener closure should be executed")
+        let expectation = expectation(description: "listener closure should be executed")
 
         var networkReachabilityStatus: NetworkReachabilityManager.NetworkReachabilityStatus?
 
-        manager?.listener = { status in
+        // When
+        manager?.startListening { status in
             networkReachabilityStatus = status
             expectation.fulfill()
         }
-
-        // When
-        manager?.startListening()
-        waitForExpectationsWithTimeout(timeout, handler: nil)
+        waitForExpectations(timeout: timeout)
 
         // Then
-        XCTAssertEqual(networkReachabilityStatus, .Reachable(.EthernetOrWiFi))
+        XCTAssertEqual(networkReachabilityStatus, .reachable(.ethernetOrWiFi))
     }
 
-    // MARK: - Tests - Network Reachability Status
+    // MARK: - NetworkReachabilityStatus
 
-    func testThatManagerReturnsNotReachableStatusWhenReachableFlagIsAbsent() {
+    func testThatStatusIsNotReachableStatusWhenReachableFlagIsAbsent() {
         // Given
-        let manager = NetworkReachabilityManager()
-        let flags: SCNetworkReachabilityFlags = [.ConnectionOnDemand]
+        let flags: SCNetworkReachabilityFlags = [.connectionOnDemand]
 
         // When
-        let networkReachabilityStatus = manager?.networkReachabilityStatusForFlags(flags)
+        let status = NetworkReachabilityManager.NetworkReachabilityStatus(flags)
 
         // Then
-        XCTAssertEqual(networkReachabilityStatus, .NotReachable)
+        XCTAssertEqual(status, .notReachable)
     }
 
-    func testThatManagerReturnsNotReachableStatusWhenInterventionIsRequired() {
+    func testThatStatusIsNotReachableStatusWhenConnectionIsRequired() {
         // Given
-        let manager = NetworkReachabilityManager()
-        let flags: SCNetworkReachabilityFlags = [.Reachable, .ConnectionRequired, .ConnectionOnDemand, .InterventionRequired]
+        let flags: SCNetworkReachabilityFlags = [.reachable, .connectionRequired]
 
         // When
-        let networkReachabilityStatus = manager?.networkReachabilityStatusForFlags(flags)
+        let status = NetworkReachabilityManager.NetworkReachabilityStatus(flags)
 
         // Then
-        XCTAssertEqual(networkReachabilityStatus, .NotReachable)
+        XCTAssertEqual(status, .notReachable)
     }
 
-    func testThatManagerReturnsReachableOnWiFiStatusWhenConnectionIsNotRequired() {
+    func testThatStatusIsNotReachableStatusWhenInterventionIsRequired() {
         // Given
-        let manager = NetworkReachabilityManager()
-        let flags: SCNetworkReachabilityFlags = [.Reachable]
+        let flags: SCNetworkReachabilityFlags = [.reachable, .connectionRequired, .interventionRequired]
 
         // When
-        let networkReachabilityStatus = manager?.networkReachabilityStatusForFlags(flags)
+        let status = NetworkReachabilityManager.NetworkReachabilityStatus(flags)
 
         // Then
-        XCTAssertEqual(networkReachabilityStatus, .Reachable(.EthernetOrWiFi))
+        XCTAssertEqual(status, .notReachable)
     }
 
-    func testThatManagerReturnsReachableOnWiFiStatusWhenConnectionIsOnDemand() {
+    func testThatStatusIsReachableOnWiFiStatusWhenConnectionIsNotRequired() {
         // Given
-        let manager = NetworkReachabilityManager()
-        let flags: SCNetworkReachabilityFlags = [.Reachable, .ConnectionRequired, .ConnectionOnDemand]
+        let flags: SCNetworkReachabilityFlags = [.reachable]
 
         // When
-        let networkReachabilityStatus = manager?.networkReachabilityStatusForFlags(flags)
+        let status = NetworkReachabilityManager.NetworkReachabilityStatus(flags)
 
         // Then
-        XCTAssertEqual(networkReachabilityStatus, .Reachable(.EthernetOrWiFi))
+        XCTAssertEqual(status, .reachable(.ethernetOrWiFi))
     }
 
-    func testThatManagerReturnsReachableOnWiFiStatusWhenConnectionIsOnTraffic() {
+    func testThatStatusIsReachableOnWiFiStatusWhenConnectionIsOnDemand() {
         // Given
-        let manager = NetworkReachabilityManager()
-        let flags: SCNetworkReachabilityFlags = [.Reachable, .ConnectionRequired, .ConnectionOnTraffic]
+        let flags: SCNetworkReachabilityFlags = [.reachable, .connectionRequired, .connectionOnDemand]
 
         // When
-        let networkReachabilityStatus = manager?.networkReachabilityStatusForFlags(flags)
+        let status = NetworkReachabilityManager.NetworkReachabilityStatus(flags)
 
         // Then
-        XCTAssertEqual(networkReachabilityStatus, .Reachable(.EthernetOrWiFi))
+        XCTAssertEqual(status, .reachable(.ethernetOrWiFi))
     }
 
-#if os(iOS)
-    func testThatManagerReturnsReachableOnWWANStatusWhenIsWWAN() {
+    func testThatStatusIsReachableOnWiFiStatusWhenConnectionIsOnTraffic() {
         // Given
-        let manager = NetworkReachabilityManager()
-        let flags: SCNetworkReachabilityFlags = [.Reachable, .IsWWAN]
+        let flags: SCNetworkReachabilityFlags = [.reachable, .connectionRequired, .connectionOnTraffic]
 
         // When
-        let networkReachabilityStatus = manager?.networkReachabilityStatusForFlags(flags)
+        let status = NetworkReachabilityManager.NetworkReachabilityStatus(flags)
 
         // Then
-        XCTAssertEqual(networkReachabilityStatus, .Reachable(.WWAN))
+        XCTAssertEqual(status, .reachable(.ethernetOrWiFi))
     }
-#endif
+
+    #if os(iOS) || os(tvOS)
+    func testThatStatusIsReachableOnCellularStatusWhenIsWWAN() {
+        // Given
+        let flags: SCNetworkReachabilityFlags = [.reachable, .isWWAN]
+
+        // When
+        let status = NetworkReachabilityManager.NetworkReachabilityStatus(flags)
+
+        // Then
+        XCTAssertEqual(status, .reachable(.cellular))
+    }
+
+    func testThatStatusIsNotReachableOnCellularStatusWhenIsWWANAndConnectionIsRequired() {
+        // Given
+        let flags: SCNetworkReachabilityFlags = [.reachable, .isWWAN, .connectionRequired]
+
+        // When
+        let status = NetworkReachabilityManager.NetworkReachabilityStatus(flags)
+
+        // Then
+        XCTAssertEqual(status, .notReachable)
+    }
+    #endif
 }
+
+#endif
